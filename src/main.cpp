@@ -4,11 +4,13 @@
 #include <Geode/modify/PlayerObject.hpp>
 #include <Geode/binding/GJGameLevel.hpp>
 #include <Geode/binding/GameObject.hpp>
+#include <Geode/ui/Popup.hpp>
 
 #include <algorithm>
 #include <cctype>
 #include <chrono>
 #include <fstream>
+#include <filesystem>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -36,7 +38,10 @@ double g_recordTime = 0.0;
 double g_playTime = 0.0;
 size_t g_playIndex = 0;
 float g_sampleTimer = 0.f;
+float g_speedMultiplier = 1.0f;
 constexpr double kPlaybackSpeed = 15.0;
+std::vector<std::filesystem::path> g_macroFiles;
+size_t g_selectedMacro = 0;
 
 std::string safeName(std::string name) {
     for (auto& c : name) {
@@ -65,6 +70,15 @@ bool saveMacro(std::string name) {
     out << "# trajectory x y time_seconds\n";
     for (auto const& p : g_trail) out << "#P " << p.x << ' ' << p.y << ' ' << p.t << '\n';
     return static_cast<bool>(out);
+}
+void refreshMacroFiles() {
+    g_macroFiles.clear();
+    for (auto const& entry : std::filesystem::directory_iterator(macroDir())) {
+        if (entry.is_regular_file() && entry.path().extension() == ".gpt") g_macroFiles.push_back(entry.path());
+    }
+    std::sort(g_macroFiles.begin(), g_macroFiles.end());
+    if (g_macroFiles.empty()) g_selectedMacro = 0;
+    else if (g_selectedMacro >= g_macroFiles.size()) g_selectedMacro = g_macroFiles.size() - 1;
 }
 bool loadMacro(std::filesystem::path const& path) {
     std::ifstream in(path, std::ios::binary);
@@ -105,91 +119,97 @@ void addEvent(PlayerObject* player, int button, bool pressed) {
     g_events.push_back({g_recordTime, button, pressed, player->getPositionX(), player->getPositionY()});
 }
 
-class GPTMacroPanel : public CCLayerColor {
+class GPTMacroPopup : public Popup {
     CCLabelBMFont* m_status = nullptr;
-    CCLayerColor* m_panel = nullptr;
-
-    void setStatus(std::string const& text) {
-        if (m_status) m_status->setString(text.c_str());
-    }
-    void addButton(CCMenu* menu, char const* title, CCPoint pos, SEL_MenuHandler callback, char const* sprite = "GJ_button_01.png") {
-        auto spr = ButtonSprite::create(title, "bigFont.fnt", sprite, 0.65f);
-        if (!spr) return;
-        spr->setScale(0.72f);
-        auto item = CCMenuItemSpriteExtra::create(spr, this, callback);
-        if (!item) return;
-        item->setPosition(pos);
-        menu->addChild(item);
-    }
+    CCLabelBMFont* m_selectedLabel = nullptr;
     bool init() {
-        auto win = CCDirector::get()->getWinSize();
-        if (!CCLayerColor::initWithColor({0, 0, 0, 165})) return false;
-        this->setContentSize(win);
-        this->setTouchEnabled(true);
-
-        m_panel = CCLayerColor::create({25, 30, 48, 248});
-        if (!m_panel) return false;
-        m_panel->setContentSize({350.f, 260.f});
-        m_panel->setPosition({(win.width - 350.f) / 2.f, (win.height - 260.f) / 2.f});
-        this->addChild(m_panel, 1);
-
-        auto title = CCLabelBMFont::create("GPT SHOWCASE", "bigFont.fnt");
-        if (title) { title->setScale(0.7f); title->setPosition({175.f, 232.f}); m_panel->addChild(title); }
-        auto subtitle = CCLabelBMFont::create("Macro tools  |  15x event playback", "chatFont.fnt");
-        if (subtitle) { subtitle->setScale(0.55f); subtitle->setPosition({175.f, 211.f}); m_panel->addChild(subtitle); }
-
-        auto menu = CCMenu::create();
-        if (!menu) return false;
-        menu->setPosition({0.f, 0.f});
-        addButton(menu, g_recording ? "Stop + Save" : "Record", {92.f, 172.f}, menu_selector(GPTMacroPanel::onRecord), g_recording ? "GJ_button_06.png" : "GJ_button_01.png");
-        addButton(menu, "Play 15x", {258.f, 172.f}, menu_selector(GPTMacroPanel::onPlay), "GJ_button_02.png");
-        addButton(menu, "Stop Play", {92.f, 126.f}, menu_selector(GPTMacroPanel::onStop), "GJ_button_06.png");
-        addButton(menu, g_trajectory ? "Trail ON" : "Trail OFF", {258.f, 126.f}, menu_selector(GPTMacroPanel::onTrail), "GJ_button_04.png");
-        addButton(menu, "Map Objects", {92.f, 80.f}, menu_selector(GPTMacroPanel::onMap), "GJ_button_05.png");
-        addButton(menu, "Save Macro", {258.f, 80.f}, menu_selector(GPTMacroPanel::onSave), "GJ_button_01.png");
-        addButton(menu, "Close", {175.f, 38.f}, menu_selector(GPTMacroPanel::onClose), "GJ_button_06.png");
-        m_panel->addChild(menu);
-
+        refreshMacroFiles();
+        if (!Popup::init(340.f, 300.f)) return false;
+        this->setTitle("GPT Showcase");
+        auto menu = CCMenu::create(); menu->setPosition(CCPointZero);
+        auto add = [&](char const* title, CCPoint pos, SEL_MenuHandler cb, char const* sprite = "GJ_button_01.png") {
+            auto spr = ButtonSprite::create(title, "bigFont.fnt", sprite, 0.65f);
+            spr->setScale(0.62f);
+            auto item = CCMenuItemSpriteExtra::create(spr, this, cb);
+            item->setPosition(pos); menu->addChild(item);
+        };
+        add(g_recording ? "Stop + Save" : "Record", {86.f, 238.f}, menu_selector(GPTMacroPopup::onRecord), g_recording ? "GJ_button_06.png" : "GJ_button_01.png");
+        add("Play 15x", {254.f, 238.f}, menu_selector(GPTMacroPopup::onPlay), "GJ_button_02.png");
+        add("Stop Playback", {86.f, 198.f}, menu_selector(GPTMacroPopup::onStop), "GJ_button_06.png");
+        add(g_trajectory ? "Trail: ON" : "Trail: OFF", {254.f, 198.f}, menu_selector(GPTMacroPopup::onTrail), "GJ_button_04.png");
+        add("< Macro", {86.f, 158.f}, menu_selector(GPTMacroPopup::onPrevious), "GJ_button_01.png");
+        add("Macro >", {254.f, 158.f}, menu_selector(GPTMacroPopup::onNext), "GJ_button_01.png");
+        add("Load Selected", {170.f, 119.f}, menu_selector(GPTMacroPopup::onLoadSelected), "GJ_button_02.png");
+        add("Save Macro", {86.f, 79.f}, menu_selector(GPTMacroPopup::onSave), "GJ_button_01.png");
+        add("Speedhack", {254.f, 79.f}, menu_selector(GPTMacroPopup::onSpeed), "GJ_button_05.png");
+        this->addChild(menu);
+        m_selectedLabel = CCLabelBMFont::create("No saved macros", "chatFont.fnt");
+        m_selectedLabel->setScale(0.55f); m_selectedLabel->setPosition({170.f, 48.f}); this->addChild(m_selectedLabel);
+        updateSelectedLabel();
         m_status = CCLabelBMFont::create("Ready", "chatFont.fnt");
-        if (m_status) { m_status->setScale(0.55f); m_status->setPosition({175.f, 15.f}); m_panel->addChild(m_status); }
+        m_status->setScale(0.62f); m_status->setPosition({170.f, 23.f}); this->addChild(m_status);
         return true;
     }
+    void status(std::string const& s) { if (m_status) m_status->setString(s.c_str()); }
+    void updateSelectedLabel() {
+        refreshMacroFiles();
+        if (!m_selectedLabel) return;
+        if (g_macroFiles.empty()) m_selectedLabel->setString("No saved macros");
+        else {
+            auto name = g_macroFiles[g_selectedMacro].stem().string();
+            if (name.size() > 28) name = name.substr(0, 25) + "...";
+            m_selectedLabel->setString(name.c_str());
+        }
+    }
+    void onPrevious(CCObject*) {
+        refreshMacroFiles();
+        if (g_macroFiles.empty()) { status("No saved macros"); return; }
+        g_selectedMacro = (g_selectedMacro + g_macroFiles.size() - 1) % g_macroFiles.size();
+        updateSelectedLabel(); status("Selected previous macro");
+    }
+    void onNext(CCObject*) {
+        refreshMacroFiles();
+        if (g_macroFiles.empty()) { status("No saved macros"); return; }
+        g_selectedMacro = (g_selectedMacro + 1) % g_macroFiles.size();
+        updateSelectedLabel(); status("Selected next macro");
+    }
+    void onLoadSelected(CCObject*) {
+        refreshMacroFiles();
+        if (g_macroFiles.empty()) { status("No saved macros to load"); return; }
+        g_recording = false; g_playing = false;
+        if (loadMacro(g_macroFiles[g_selectedMacro])) status("Loaded selected macro");
+        else status("Could not load selected macro");
+    }
+    void onSpeed(CCObject*) {
+        if (g_speedMultiplier < 1.5f) g_speedMultiplier = 2.f;
+        else if (g_speedMultiplier < 3.5f) g_speedMultiplier = 5.f;
+        else g_speedMultiplier = 1.f;
+        status(std::string("Game speed: ") + std::to_string(static_cast<int>(g_speedMultiplier)) + "x");
+    }
     void onRecord(CCObject*) {
-        if (g_recording) { stopRecordingAndSave(true); setStatus("Stopped; auto-save attempted"); }
-        else { startRecording(); setStatus("Recording inputs and trail"); }
+        if (g_recording) { stopRecordingAndSave(true); status("Stopped; saved if events existed"); }
+        else { startRecording(); status("Recording inputs + trajectory"); }
     }
     void onPlay(CCObject*) {
-        if (g_events.empty()) { setStatus("Record a macro first"); return; }
-        g_recording = false; g_playing = true; g_playIndex = 0; g_playTime = 0.0;
-        setStatus("Playing events at 15x timing");
+        if (g_events.empty()) { status("No macro yet - record first"); return; }
+        g_recording = false; g_playing = true; g_playIndex = 0; g_playTime = 0.0; status("Playback running at 15x");
     }
-    void onStop(CCObject*) { g_playing = false; setStatus("Playback stopped"); }
-    void onTrail(CCObject*) { g_trajectory = !g_trajectory; setStatus(g_trajectory ? "Trail sampling enabled" : "Trail sampling disabled"); }
-    void onMap(CCObject*) {
-        auto pl = PlayLayer::get();
-        if (!pl) { setStatus("Enter a level to map objects"); return; }
-        std::ofstream out(macroDir() / (safeName(currentLevelName()) + "-object-map.csv"));
-        if (!out) { setStatus("Could not write object map"); return; }
-        out << "index,x,y,width,height,rotation\n";
-        size_t count = 0;
-        for (auto obj : CCArrayExt<GameObject*>(pl->m_objects)) {
-            if (!obj) continue;
-            auto pos = obj->getPosition();
-            auto size = obj->getContentSize();
-            out << count++ << ',' << pos.x << ',' << pos.y << ',' << size.width << ',' << size.height << ',' << obj->getRotation() << '\n';
-        }
-        setStatus("Exported object map (approx. geometry)");
+    void onStop(CCObject*) { g_playing = false; status("Playback stopped"); }
+    void onTrail(CCObject*) { g_trajectory = !g_trajectory; status(g_trajectory ? "Trajectory enabled" : "Trajectory hidden"); }
+    void onPathfinder(CCObject*) {
+        g_pathfinder = !g_pathfinder;
+        status(g_pathfinder ? "Hitbox scan is experimental" : "Pathfinder disabled");
+        if (g_pathfinder) Notification::create("Hitbox mapping is experimental; it does not guarantee a 100% route", NotificationIcon::Warning, 3.5f)->show();
     }
-    void onSave(CCObject*) { setStatus(saveMacro(currentLevelName()) ? "Saved to Geode save/macros" : "Save failed"); }
-    void onClose(CCObject*) { this->removeFromParentAndCleanup(true); }
+    void onSave(CCObject*) {
+        auto ok = saveMacro(currentLevelName());
+        refreshMacroFiles(); updateSelectedLabel();
+        status(ok ? "Saved in Geode/macros" : "Save failed");
+    }
 public:
-    static GPTMacroPanel* create() {
-        auto ret = new GPTMacroPanel();
-        if (ret && ret->init()) { ret->autorelease(); return ret; }
-        delete ret;
-        return nullptr;
-    }
-};}
+    static GPTMacroPopup* create() { auto ret = new GPTMacroPopup(); if (ret->init()) { ret->autorelease(); return ret; } delete ret; return nullptr; }
+};
+}
 
 class $modify(GPTPlayerObject, PlayerObject) {
     bool pushButton(PlayerButton button) {
@@ -211,17 +231,20 @@ class $modify(GPTPlayLayer, PlayLayer) {
         return true;
     }
     void update(float dt) {
-        PlayLayer::update(dt);
+        // Scale the actual PlayLayer update for a simple game-speed control.
+        // Playback acceleration is independent and remains set to 15x.
+        float gameDt = dt * g_speedMultiplier;
+        PlayLayer::update(gameDt);
         if (g_recording && g_enabled) {
-            g_recordTime += dt;
-            g_sampleTimer += dt;
+            g_recordTime += gameDt;
+            g_sampleTimer += gameDt;
             if (g_trajectory && g_sampleTimer >= 0.025f) {
                 g_sampleTimer = 0.f;
                 if (m_player1) g_trail.push_back({m_player1->getPositionX(), m_player1->getPositionY(), g_recordTime});
             }
         }
         if (g_playing && g_enabled && m_player1) {
-            g_playTime += static_cast<double>(dt) * kPlaybackSpeed;
+            g_playTime += static_cast<double>(gameDt) * kPlaybackSpeed;
             while (g_playIndex < g_events.size() && g_events[g_playIndex].timeSeconds <= g_playTime) {
                 auto const& e = g_events[g_playIndex++];
                 auto btn = static_cast<PlayerButton>(e.button);
@@ -256,5 +279,5 @@ class $modify(GPTPauseLayer, PauseLayer) {
         if (auto menu = this->getChildByID("right-button-menu")) { menu->addChild(item); menu->updateLayout(); }
         else this->addChild(item);
     }
-    void onOpenGPT(CCObject*) { if (auto panel = GPTMacroPanel::create()) this->addChild(panel, 9999); }
+    void onOpenGPT(CCObject*) { if (auto popup = GPTMacroPopup::create()) popup->show(); }
 };
