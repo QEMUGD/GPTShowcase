@@ -138,7 +138,7 @@ public:
     }
 };
 
-$modify(GPTPauseLayer, PauseLayer) {
+class $modify(GPTPauseLayer, PauseLayer) {
     void customSetup() {
         PauseLayer::customSetup();
 
