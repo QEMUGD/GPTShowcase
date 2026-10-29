@@ -38,4 +38,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: GPT-ShowcaseMacro-Windows-Android
-          path: ${{ steps.combine.outputs.output }}
+          # The combine action writes its merged .geode into its own out directory.
+          path: /home/runner/work/_actions/geode-sdk/build-geode-mod/main/combine/out/*
+          if-no-files-found: error
