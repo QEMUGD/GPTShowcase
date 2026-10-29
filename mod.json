@@ -1,0 +1,13 @@
+{
+  "geode": "v5.8.2",
+  "gd": {
+    "win": "2.2081",
+    "android": "2.2081"
+  },
+  "id": "loftplay.gpt-showcase",
+  "name": "GPT Showcase Macro",
+  "version": "v0.1.0",
+  "developer": "loftplay",
+  "description": "Showcase macro UI and .gpt file format prototype for Geometry Dash 2.2081.",
+  "dependencies": {}
+}
