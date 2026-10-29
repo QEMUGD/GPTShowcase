@@ -2,6 +2,7 @@
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/ui/Popup.hpp>
 
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -71,13 +72,14 @@ public:
     }
 };
 
-class GPTMacroPopup : public Popup<> {
+class GPTMacroPopup : public Popup {
 protected:
     CCLabelBMFont* m_status = nullptr;
 
-    bool setup() override {
+    bool init() {
+        if (!Popup::init(360.f, 220.f)) return false;
         this->setTitle("GPT Showcase Macro");
-        auto winSize = CCDirector::get()->getWinSize();
+        // Popup contents use popup-local coordinates, not full-screen coordinates.
 
         auto addButton = [&](char const* label, CCPoint pos, SEL_MenuHandler callback) {
             auto button = CCMenuItemSpriteExtra::create(
@@ -90,22 +92,22 @@ protected:
 
         auto menu = CCMenu::create();
         menu->setPosition(CCPointZero);
-        menu->addChild(addButton("Record", {winSize.width * 0.30f, winSize.height * 0.56f},
+        menu->addChild(addButton("Record", {70.f, 125.f},
                                  menu_selector(GPTMacroPopup::onRecord)));
-        menu->addChild(addButton("Stop", {winSize.width * 0.50f, winSize.height * 0.56f},
+        menu->addChild(addButton("Stop", {180.f, 125.f},
                                  menu_selector(GPTMacroPopup::onStop)));
-        menu->addChild(addButton("Continue", {winSize.width * 0.70f, winSize.height * 0.56f},
+        menu->addChild(addButton("Continue", {290.f, 125.f},
                                  menu_selector(GPTMacroPopup::onContinue)));
-        menu->addChild(addButton("Save .gpt", {winSize.width * 0.38f, winSize.height * 0.40f},
+        menu->addChild(addButton("Save .gpt", {115.f, 75.f},
                                  menu_selector(GPTMacroPopup::onSave)));
-        menu->addChild(addButton("Enable / Disable", {winSize.width * 0.63f, winSize.height * 0.40f},
+        menu->addChild(addButton("Enable / Disable", {245.f, 75.f},
                                  menu_selector(GPTMacroPopup::onToggle)));
         this->addChild(menu);
 
         m_status = CCLabelBMFont::create(
             "Prototype UI: recorder hooks not connected yet", "bigFont.fnt");
         m_status->setScale(0.38f);
-        m_status->setPosition({winSize.width / 2.f, winSize.height * 0.28f});
+        m_status->setPosition({180.f, 35.f});
         this->addChild(m_status);
         return true;
     }
@@ -127,7 +129,7 @@ protected:
 public:
     static GPTMacroPopup* create() {
         auto ret = new GPTMacroPopup();
-        if (ret->initAnchored(360.f, 220.f)) {
+        if (ret->init()) {
             ret->autorelease();
             return ret;
         }
@@ -165,4 +167,3 @@ $modify(GPTPauseLayer, PauseLayer) {
         if (auto popup = GPTMacroPopup::create()) popup->show();
     }
 };
-
