@@ -38,4 +38,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: GPT-ShowcaseMacro-Windows-Android
-          path: ${{ steps.combine.outputs.build-output }}
+          path: ${{ steps.combine.outputs.output }}
