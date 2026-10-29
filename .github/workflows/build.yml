@@ -39,4 +39,3 @@ jobs:
         with:
           name: GPT-ShowcaseMacro-Windows-Android
           path: ${{ steps.combine.outputs.output }}
-
